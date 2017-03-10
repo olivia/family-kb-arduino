@@ -4,8 +4,7 @@ int selectCol = 12;
 int enableKeyboard = 4;
 int currCol = 0;
 int currRow = 0;
-int lastKeyCode = -1;
-int debounce = 0;
+int debounceTime = 50;
 
 struct key_state {
   const unsigned char key_code;
@@ -91,10 +90,6 @@ key_state keys[]={
   KEY_INSERT
 };
 
-//int oldKeyStates[72];
-//int keyStates[72];
-//int keyDebounces[72];
-
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
@@ -117,10 +112,13 @@ void setup() {
 }
 
 void nextCol() {
+  //Serial.println((PORTD & 64) >> 6);
   if (currCol % 2 == 0) {
-    digitalWrite(selectCol, HIGH);
+    //Faster version of: digitalWrite(12, HIGH);
+    PORTD = PORTD | B01000000;
   } else {
-    digitalWrite(selectCol, LOW);
+    //Faster version of: digitalWrite(12, LOW);
+    PORTD = PORTD & B10111111;
     currRow = (currRow + 1) % 10;
   }
   currCol = (currCol + 1) % 2;
@@ -131,19 +129,15 @@ void nextRow() {
   nextCol();
 }
 
-void checkKey(int col) {
-  int offset = 8;
-  int pin = offset + col;
-  int keyValIdx = col + currCol * 4 + currRow * 8;
-  keys[keyValIdx].curr = digitalRead(pin);
-}
-
 void scanKeyboard() {
   for (int i = 0; i < 18; i++) {
-    checkKey(0);
-    checkKey(1);
-    checkKey(2);
-    checkKey(3);
+    //read port 8-11
+    char pinb = PINB >> 4;
+    int keyValIdx = currCol * 4 + currRow * 8;
+    keys[keyValIdx].curr = pinb & 1; 
+    keys[keyValIdx + 1].curr = (pinb >> 1) & 1;
+    keys[keyValIdx + 2].curr = (pinb >> 2) & 1;
+    keys[keyValIdx + 3].curr = (pinb >> 3) & 1;
     nextCol();
   }
   //skip over to first row
@@ -158,7 +152,7 @@ void diffKeys() {
     key_state* key = keys + i;
     int diff = (key->old << 1) | key->curr;
     if (key->debounce != 0) {
-      key->debounce = (key->debounce + 1) % 15;  
+      key->debounce = (key->debounce + 1) % debounceTime;  
     }
     else if (diff == 2) {
       Keyboard.release(key->key_code);
@@ -177,7 +171,7 @@ void diffAndSyncKey(int i) {
   key_state* key = keys + i;
   int diff = (key->old << 1) | key->curr;
   if (key->debounce != 0) {
-    key->debounce = (key->debounce + 1) % 15;  
+    return;
   } else if (diff == 2) {
     Keyboard.release(key->key_code);
     key->debounce++;  
