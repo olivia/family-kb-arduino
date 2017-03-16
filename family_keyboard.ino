@@ -1,6 +1,20 @@
 #include <Keyboard.h>
+#define ARDUINO_MICRO 0
+#define DEBUG 0
 int rowReset = 2;
-int selectCol = 12;
+
+#if ARDUINO_MICRO == 1
+  int portBOff = 4;
+  int selectCol = 12;
+  char setColHigh = B01000000;
+  char setColLow = B10111111;
+#else
+  int selectCol = 6;
+  int portBOff = 1;
+  char setColHigh = B10000000;
+  char setColLow = B01111111;
+#endif
+
 int enableKeyboard = 4;
 int currCol = 0;
 int currRow = 0;
@@ -94,12 +108,17 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   pinMode(7, INPUT);
-  pinMode(8, INPUT);
-  pinMode(9, INPUT);
-  pinMode(10, INPUT);
-  pinMode(11, INPUT);
-  
-
+  #if ARDUINO_MICRO == 1
+    pinMode(8, INPUT);
+    pinMode(9, INPUT);
+    pinMode(10, INPUT);
+    pinMode(11, INPUT);
+  #else
+    pinMode(8, INPUT);
+    pinMode(14, INPUT);
+    pinMode(16, INPUT);
+    pinMode(15, INPUT);
+  #endif
   pinMode(rowReset, OUTPUT);
   pinMode(selectCol, OUTPUT);
   pinMode(enableKeyboard, OUTPUT);
@@ -112,13 +131,12 @@ void setup() {
 }
 
 void nextCol() {
-  //Serial.println((PORTD & 64) >> 6);
   if (currCol % 2 == 0) {
     //Faster version of: digitalWrite(12, HIGH);
-    PORTD = PORTD | B01000000;
+    PORTD = PORTD | setColHigh;
   } else {
     //Faster version of: digitalWrite(12, LOW);
-    PORTD = PORTD & B10111111;
+    PORTD = PORTD & setColLow;
     currRow = (currRow + 1) % 10;
   }
   currCol = (currCol + 1) % 2;
@@ -132,12 +150,13 @@ void nextRow() {
 void scanKeyboard() {
   for (int i = 0; i < 18; i++) {
     //read port 8-11
-    char pinb = PINB >> 4;
+    char pinb = PINB >> portBOff;
     int keyValIdx = currCol * 4 + currRow * 8;
-    keys[keyValIdx].curr = pinb & 1; 
-    keys[keyValIdx + 1].curr = (pinb >> 1) & 1;
-    keys[keyValIdx + 2].curr = (pinb >> 2) & 1;
-    keys[keyValIdx + 3].curr = (pinb >> 3) & 1;
+
+    keys[keyValIdx].curr = pinb & 1;  // Pin 11
+    keys[keyValIdx + 1].curr = (pinb >> 1) & 1; // Pin 10
+    keys[keyValIdx + 2].curr = (pinb >> 2) & 1; // Pin 9
+    keys[keyValIdx + 3].curr = (pinb >> 3) & 1; // Pin 8
     nextCol();
   }
   //skip over to first row
@@ -149,20 +168,7 @@ void scanKeyboard() {
 
 void diffKeys() {
   for (int i = 0; i < 72; i++) {
-    key_state* key = keys + i;
-    int diff = (key->old << 1) | key->curr;
-    if (key->debounce != 0) {
-      key->debounce = (key->debounce + 1) % debounceTime;  
-    }
-    else if (diff == 2) {
-      Keyboard.release(key->key_code);
-      key->old = key->curr;
-      key->debounce++;
-    } else if (diff == 1) {
-      Keyboard.press(key->key_code);
-      key->old = key->curr;
-      key->debounce++;
-    }
+    diffAndSyncKey(i);
   }
 }
 
@@ -171,13 +177,24 @@ void diffAndSyncKey(int i) {
   key_state* key = keys + i;
   int diff = (key->old << 1) | key->curr;
   if (key->debounce != 0) {
-    return;
+    key->debounce = (key->debounce + 1) % debounceTime;
   } else if (diff == 2) {
-    Keyboard.release(key->key_code);
+    #if DEBUG
+      Serial.print("Released: ");
+      Serial.println(String(key->key_code));
+    #else
+      Keyboard.release(key->key_code);
+    #endif
+    
     key->debounce++;  
     key->old = key->curr;
   } else if (diff == 1) {
-    Keyboard.press(key->key_code);
+    #if DEBUG
+     Serial.print("Pressed: ");
+     Serial.println(key->key_code);
+    #else
+      Keyboard.press(key->key_code);
+    #endif
     key->debounce++;
     key->old = key->curr;  
   }
